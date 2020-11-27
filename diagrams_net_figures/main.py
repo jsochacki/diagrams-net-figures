@@ -99,9 +99,9 @@ def cli():
     default=os.getcwd(),
     type=click.Path(exists=False, file_okay=False, dir_okay=True)
 )
-def create(title, root):
+def markdown_create(title, root):
     """
-    Creates a figure.
+    Creates a diagram for use in markdown.
 
     First argument is the title of the figure
     Second argument is the figure directory.
@@ -127,8 +127,46 @@ def create(title, root):
     # Print the code for including the figure to stdout.
     # Copy the indentation of the input.
     leading_spaces = len(title) - len(title.lstrip())
-    #TODO make if for markdown vs latex
+    print(indent(markdown_template(figure_path.stem, title), indentation=leading_spaces))
+
+
+@cli.command()
+@click.argument('title')
+@click.argument(
+    'root',
+    default=os.getcwd(),
+    type=click.Path(exists=False, file_okay=False, dir_okay=True)
+)
+def latex_create(title, root):
+    """
+    Creates a diagram for use in latex.
+
+    First argument is the title of the figure
+    Second argument is the figure directory.
+
+    """
+    title = title.strip()
+    file_name = title.replace(' ', '-').lower() + '.svg'
+    figures = Path(root).absolute()
+    if not figures.exists():
+        figures.mkdir()
+
+    figure_path = figures / file_name
+
+    # If a file with this name already exists, append a '2'.
+    if figure_path.exists():
+        print(title + ' 2')
+        return
+
+    copy(str(template), str(figure_path))
+    add_root(figures)
+    diagramsnet(figure_path)
+
+    # Print the code for including the figure to stdout.
+    # Copy the indentation of the input.
+    leading_spaces = len(title) - len(title.lstrip())
     print(indent(latex_template(figure_path.stem, title), indentation=leading_spaces))
+
 
 @cli.command()
 @click.argument(
