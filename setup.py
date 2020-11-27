@@ -10,14 +10,6 @@ def readme():
 
 
 dependencies = ['pyperclip', 'click', 'appdirs', 'daemonize']
-if find_executable("fswatch") is None:
-    if platform.system() == "Linux":
-        dependencies.append("inotify")
-    else:
-        raise ValueError(
-                "diagrams-net-figures needs fswatch to run on MacOS. You "
-                "can install it using `brew install fswatch`"
-                )
 
 setup(
     name="diagrams-net-figures",

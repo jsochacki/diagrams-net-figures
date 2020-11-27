@@ -2,7 +2,6 @@
 
 import os
 import re
-import logging
 import subprocess
 import warnings
 from pathlib import Path
@@ -14,15 +13,12 @@ from .picker import pick
 import pyperclip
 from appdirs import user_config_dir
 
-logging.basicConfig(level=os.environ.get("LOGLEVEL", "INFO"))
-log = logging.getLogger('inkscape-figures')
-
-def inkscape(path):
+def diagramsnet(path):
     with warnings.catch_warnings():
         # leaving a subprocess running after interpreter exit raises a
         # warning in Python3.7+
         warnings.simplefilter("ignore", ResourceWarning)
-        subprocess.Popen(['inkscape', str(path)])
+        subprocess.Popen(['drawio', str(path)])
 
 def indent(text, indentation=0):
     lines = text.split('\n');
@@ -40,6 +36,9 @@ def latex_template(name, title):
         rf"    \label{{fig:{name}}}",
         r"\end{figure}"))
 
+def markdown_template(name, title):
+    return rf"![{title}]({name})"
+
 # From https://stackoverflow.com/a/67692
 def import_file(name, path):
     import importlib.util as util
@@ -51,7 +50,7 @@ def import_file(name, path):
 
 # Load user config
 
-user_dir = Path(user_config_dir("inkscape-figures", "Castel"))
+user_dir = Path(user_config_dir("diagrams-net-figures", "John Sochacki"))
 
 if not user_dir.is_dir():
     user_dir.mkdir()
@@ -71,6 +70,7 @@ if not template.is_file():
 if config.exists():
     config_module = import_file('config', config)
     latex_template = config_module.latex_template
+    markdown_template = config_module.markdown_template
 
 
 def add_root(path):
@@ -90,156 +90,6 @@ def get_roots():
 @click.group()
 def cli():
     pass
-
-
-@cli.command()
-@click.option('--daemon/--no-daemon', default=True)
-def watch(daemon):
-    """
-    Watches for figures.
-    """
-    if platform.system() == 'Linux':
-        watcher_cmd = watch_daemon_inotify
-    else:
-        watcher_cmd = watch_daemon_fswatch
-
-    if daemon:
-        daemon = Daemonize(app='inkscape-figures',
-                           pid='/tmp/inkscape-figures.pid',
-                           action=watcher_cmd)
-        daemon.start()
-        log.info("Watching figures.")
-    else:
-        log.info("Watching figures.")
-        watcher_cmd()
-
-
-def maybe_recompile_figure(filepath):
-    filepath = Path(filepath)
-    # A file has changed
-    if filepath.suffix != '.svg':
-        log.debug('File has changed, but is nog an svg {}'.format(
-            filepath.suffix))
-        return
-
-    log.info('Recompiling %s', filepath)
-
-    pdf_path = filepath.parent / (filepath.stem + '.pdf')
-    name = filepath.stem
-
-    inkscape_version = subprocess.check_output(['inkscape', '--version'], universal_newlines=True)
-    log.debug(inkscape_version)
-
-    # Convert
-    # - 'Inkscape 0.92.4 (unknown)' to [0, 92, 4]
-    # - 'Inkscape 1.1-dev (3a9df5bcce, 2020-03-18)' to [1, 1]
-    # - 'Inkscape 1.0rc1' to [1, 0]
-    inkscape_version = re.findall(r'[0-9.]+', inkscape_version)[0]
-    inkscape_version_number = [int(part) for part in inkscape_version.split('.')]
-
-    # Right-pad the array with zeros (so [1, 1] becomes [1, 1, 0])
-    inkscape_version_number= inkscape_version_number + [0] * (3 - len(inkscape_version_number))
-
-    # Tuple comparison is like version comparison
-    if inkscape_version_number < [1, 0, 0]:
-        command = [
-            'inkscape',
-            '--export-area-page',
-            '--export-dpi', '300',
-            '--export-pdf', pdf_path,
-            '--export-latex', filepath
-            ]
-    else:
-        command = [
-            'inkscape', filepath,
-            '--export-area-page',
-            '--export-dpi', '300',
-            '--export-type=pdf',
-            '--export-latex',
-            '--export-filename', pdf_path
-            ]
-
-    log.debug('Running command:')
-    log.debug(' '.join(str(e) for e in command))
-
-    # Recompile the svg file
-    completed_process = subprocess.run(command)
-
-    if completed_process.returncode != 0:
-        log.error('Return code %s', completed_process.returncode)
-    else:
-        log.debug('Command succeeded')
-
-    # Copy the LaTeX code to include the file to the clipboard
-    pyperclip.copy(latex_template(name, beautify(name)))
-
-
-def watch_daemon_inotify():
-    import inotify.adapters
-    from inotify.constants import IN_CLOSE_WRITE
-
-    while True:
-        roots = get_roots()
-
-        # Watch the file with contains the paths to watch
-        # When this file changes, we update the watches.
-        i = inotify.adapters.Inotify()
-        i.add_watch(str(roots_file), mask=IN_CLOSE_WRITE)
-
-        # Watch the actual figure directories
-        log.info('Watching directories: ' + ', '.join(get_roots()))
-        for root in roots:
-            try:
-                i.add_watch(root, mask=IN_CLOSE_WRITE)
-            except Exception:
-                log.debug('Could not add root %s', root)
-
-        for event in i.event_gen(yield_nones=False):
-            (_, type_names, path, filename) = event
-
-            # If the file containing figure roots has changes, update the
-            # watches
-            if path == str(roots_file):
-                log.info('The roots file has been updated. Updating watches.')
-                for root in roots:
-                    try:
-                        i.remove_watch(root)
-                        log.debug('Removed root %s', root)
-                    except Exception:
-                        log.debug('Could not remove root %s', root)
-                # Break out of the loop, setting up new watches.
-                break
-
-            # A file has changed
-            path = Path(path) / filename
-            maybe_recompile_figure(path)
-
-
-def watch_daemon_fswatch():
-    while True:
-        roots = get_roots()
-        log.info('Watching directories: ' + ', '.join(roots))
-        # Watch the figures directories, as weel as the config directory
-        # containing the roots file (file containing the figures to the figure
-        # directories to watch). If the latter changes, restart the watches.
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", ResourceWarning)
-            p = subprocess.Popen(
-                    ['fswatch', *roots, str(user_dir)], stdout=subprocess.PIPE,
-                    universal_newlines=True)
-
-        while True:
-            filepath = p.stdout.readline().strip()
-
-            # If the file containing figure roots has changes, update the
-            # watches
-            if filepath == str(roots_file):
-                log.info('The roots file has been updated. Updating watches.')
-                p.terminate()
-                log.debug('Removed main watch %s')
-                break
-            maybe_recompile_figure(filepath)
-
 
 
 @cli.command()
@@ -272,11 +122,12 @@ def create(title, root):
 
     copy(str(template), str(figure_path))
     add_root(figures)
-    inkscape(figure_path)
+    diagramsnet(figure_path)
 
     # Print the code for including the figure to stdout.
     # Copy the indentation of the input.
     leading_spaces = len(title) - len(title.lstrip())
+    #TODO make if for markdown vs latex
     print(indent(latex_template(figure_path.stem, title), indentation=leading_spaces))
 
 @cli.command()
@@ -304,7 +155,7 @@ def edit(root):
     if selected:
         path = files[index]
         add_root(figures)
-        inkscape(path)
+        diagramsnet(path)
 
 if __name__ == '__main__':
     cli()
