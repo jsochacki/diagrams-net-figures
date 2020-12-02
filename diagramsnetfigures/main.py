@@ -109,11 +109,13 @@ def markdown_create(title, root):
     """
     title = title.strip()
     file_name = title.replace(' ', '-').lower() + '.svg'
+    pdf_file_name = title.replace(' ', '-').lower() + '.pdf'
     figures = Path(root).absolute()
     if not figures.exists():
         figures.mkdir()
 
     figure_path = figures / file_name
+    relative_file_name = Path(root) / pdf_file_name
 
     # If a file with this name already exists, append a '2'.
     if figure_path.exists():
@@ -127,7 +129,7 @@ def markdown_create(title, root):
     # Print the code for including the figure to stdout.
     # Copy the indentation of the input.
     leading_spaces = len(title) - len(title.lstrip())
-    print(indent(markdown_template(figure_path.stem, title), indentation=leading_spaces))
+    print(indent(markdown_template(relative_file_name, title), indentation=leading_spaces))
 
 
 @cli.command()
