@@ -29,7 +29,7 @@ def beautify(name):
 
 def latex_template(name, title):
     return '\n'.join((
-        r"\begin{figure}[ht]",
+        r"\begin{figure}[H]",
         r"    \centering",
         rf"    \incfig{{{name}}}",
         rf"    \caption{{{title}}}",
